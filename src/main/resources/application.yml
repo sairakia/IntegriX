@@ -1,0 +1,84 @@
+spring:
+  config:
+    import: optional:file:./application-secret.yml
+  application:
+    name: IntegriX
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.mariadb.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: ${JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        format_sql: true
+    database-platform: org.hibernate.dialect.MariaDBDialect
+  mail:
+    host: smtp.naver.com
+    port: 465
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+  mongodb:
+    uri: ${MONGODB_URI}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:default}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
+  servlet:
+    multipart:
+      max-file-size: ${MAX_UPLOAD_FILE_SIZE:10MB}
+      max-request-size: ${MAX_UPLOAD_REQUEST_SIZE:11MB}
+
+server:
+  port: 11000
+  forward-headers-strategy: framework
+
+app:
+  cors:
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://[::1]:*}
+
+auth:
+  cookie:
+    secure: ${AUTH_COOKIE_SECURE:false}
+    same-site: ${AUTH_COOKIE_SAME_SITE:Lax}
+    domain: ${AUTH_COOKIE_DOMAIN:}
+
+upload:
+  profile-dir: ${PROFILE_UPLOAD_DIR:./uploads/profile}
+  profile-url-path: ${PROFILE_IMAGE_URL_PATH:/uploads/profile}
+
+jwt:
+  secret: ${JWT_SECRET:dev-only-change-this-jwt-secret-please}
+  access-token-validity-millis: 1200000
+  refresh-token-validity-millis: 604800000
+
+google:
+  safe-browsing:
+    api:
+      key: ${GOOGLE_SAFE_BROWSING_API_KEY:}
+    url: https://safebrowsing.googleapis.com/v4/threatMatches:find
+
+llm:
+  text:
+    enabled: ${TEXT_LLM_ENABLED:false}
+    api-url: ${TEXT_LLM_API_URL:}
+    api-key: ${TEXT_LLM_API_KEY:}
+    model: ${TEXT_LLM_MODEL:}
+  image:
+    enabled: ${IMAGE_LLM_ENABLED:${TEXT_LLM_ENABLED:false}}
+    api-url: ${IMAGE_LLM_API_URL:${TEXT_LLM_API_URL:}}
+    api-key: ${IMAGE_LLM_API_KEY:${TEXT_LLM_API_KEY:}}
+    model: ${IMAGE_LLM_MODEL:${TEXT_LLM_MODEL:}}
