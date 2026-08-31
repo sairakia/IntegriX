@@ -9,6 +9,7 @@ public record UserResponseDTO(
         String userId,
         String email,
         String name,
+        String role,
         String profileImage
 ) {
 }
