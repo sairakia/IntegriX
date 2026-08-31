@@ -362,6 +362,7 @@ public class UserServiceImpl implements UserService {
                 user.getUserId(),
                 user.getEmail(),
                 user.getName(),
+                user.getRole(),
                 user.getProfileImageUrl()
         );
     }

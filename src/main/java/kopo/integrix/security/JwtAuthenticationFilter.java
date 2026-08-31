@@ -13,12 +13,13 @@ import kopo.integrix.service.AuthTokenService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.List;
 
 @Component
 @RequiredArgsConstructor
@@ -27,6 +28,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String ACCESS_TOKEN_COOKIE = "accessToken";
 
     private final AuthTokenService authTokenService;
+    private final UserDetailsService userDetailsService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -38,8 +40,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (userId != null && !userId.isBlank()) {
                 // 토큰 검증이 끝난 사용자 ID를 Spring Security가 이해하는 인증 객체로 변환합니다.
+                UserDetails userDetails = userDetailsService.loadUserByUsername(userId);
                 UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(userId, null, List.of());
+                        new UsernamePasswordAuthenticationToken(userId, null, userDetails.getAuthorities());
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 // Controller의 @AuthenticationPrincipal String userId에서 이 값을 꺼내 쓸 수 있게 저장합니다.
                 SecurityContextHolder.getContext().setAuthentication(authentication);

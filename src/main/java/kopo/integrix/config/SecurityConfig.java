@@ -60,6 +60,7 @@ public class SecurityConfig {
                                 "/api/image/analyze",
                                 "/api/report"
                         ).permitAll()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         // 위 공개 URL을 제외한 나머지 API는 JwtAuthenticationFilter에서 인증된 사용자만 접근할 수 있습니다.
                         .anyRequest().authenticated()
                 )
