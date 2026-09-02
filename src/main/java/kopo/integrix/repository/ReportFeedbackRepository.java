@@ -7,8 +7,14 @@ package kopo.integrix.repository;
 import kopo.integrix.entity.ReportFeedbackEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
+
 public interface ReportFeedbackRepository extends JpaRepository<ReportFeedbackEntity, Long> {
 
     // URL 분석 서비스가 신고 DB에 같은 URL이 있는지 빠르게 확인할 때 사용합니다.
     boolean existsByFeedbackTypeAndContent(String feedbackType, String content);
+
+    List<ReportFeedbackEntity> findByUserIdOrderByCreatedAtDesc(String userId);
+
+    List<ReportFeedbackEntity> findAllByOrderByCreatedAtDesc();
 }

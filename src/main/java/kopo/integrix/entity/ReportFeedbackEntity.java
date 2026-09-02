@@ -45,18 +45,41 @@ public class ReportFeedbackEntity {
     @Column(name = "status", nullable = false, length = 20)
     private String status;
 
+    @Column(name = "admin_reply", columnDefinition = "TEXT")
+    private String adminReply;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "processed_at")
+    private LocalDateTime processedAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
     public static ReportFeedbackEntity create(String userId, String resultId, String feedbackType, String content, String reason) {
         ReportFeedbackEntity entity = new ReportFeedbackEntity();
+        LocalDateTime now = LocalDateTime.now();
         entity.userId = userId;
         entity.resultId = resultId;
         entity.feedbackType = feedbackType;
         entity.content = content;
         entity.reason = reason;
         entity.status = "접수";
-        entity.createdAt = LocalDateTime.now();
+        entity.createdAt = now;
+        entity.updatedAt = now;
         return entity;
+    }
+
+    public void updateStatus(String status, String adminReply) {
+        LocalDateTime now = LocalDateTime.now();
+        this.status = status;
+        this.adminReply = adminReply;
+        this.updatedAt = now;
+        this.processedAt = isClosedStatus(status) ? now : null;
+    }
+
+    private boolean isClosedStatus(String status) {
+        return "완료".equals(status) || "반려".equals(status);
     }
 }
