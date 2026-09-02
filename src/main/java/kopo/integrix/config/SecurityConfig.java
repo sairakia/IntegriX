@@ -41,6 +41,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 브라우저의 CORS 사전 요청은 실제 API 호출 전에 통과되어야 하므로 전체 허용합니다.
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/admin/**", "/api/report/admin/**", "/api/report/admin", "/api/notices/admin/**", "/api/notices/admin").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/notices", "/api/notices/*").permitAll()
                         // 로그인 전에도 필요한 인증, 회원가입, 공개 분석, 업로드 파일 조회 API는 공개합니다.
                         .requestMatchers(
                                 "/error",
@@ -57,10 +59,8 @@ public class SecurityConfig {
                                 "/api/dashboard/summary",
                                 "/api/url/analyze",
                                 "/api/text/analyze",
-                                "/api/image/analyze",
-                                "/api/report"
+                                "/api/image/analyze"
                         ).permitAll()
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         // 위 공개 URL을 제외한 나머지 API는 JwtAuthenticationFilter에서 인증된 사용자만 접근할 수 있습니다.
                         .anyRequest().authenticated()
                 )
