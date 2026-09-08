@@ -1,6 +1,7 @@
 package kopo.integrix.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import kopo.integrix.service.UrlScanService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,8 +9,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 
 @Slf4j
@@ -18,6 +22,7 @@ import java.time.Duration;
 public class UrlScanServiceImpl implements UrlScanService {
 
     private final WebClient webClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${urlscan.api.key:}")
     private String apiKey;
@@ -29,7 +34,7 @@ public class UrlScanServiceImpl implements UrlScanService {
     private boolean enabled;
 
     @Override
-    public UrlScanLookupResult lookupUrl(String url) throws Exception {
+    public UrlScanLookupResult lookupUrl(String url) {
         if (!enabled) {
             return UrlScanLookupResult.skipped("urlscan.io 조회가 비활성화되어 있습니다.");
         }
@@ -39,22 +44,24 @@ public class UrlScanServiceImpl implements UrlScanService {
             return UrlScanLookupResult.skipped("urlscan.io API 키가 설정되어 있지 않습니다.");
         }
 
-        String requestUri = UriComponentsBuilder
-                .fromUriString(searchUrl)
-                .queryParam("q", buildQuery(url))
-                .queryParam("size", 5)
-                .queryParam("datasource", "scans")
-                .build()
-                .encode()
-                .toUriString();
+        String domain = extractHost(url);
+        if (domain == null) {
+            return UrlScanLookupResult.skipped("urlscan.io 검색 대상 도메인을 확인할 수 없습니다.");
+        }
 
-        JsonNode body = webClient.get()
-                .uri(requestUri)
-                .header("api-key", apiKey)
-                .header(HttpHeaders.ACCEPT, "application/json")
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .block(Duration.ofSeconds(10));
+        JsonNode body;
+        try {
+            body = requestSearch("domain:" + domain);
+        } catch (WebClientResponseException.BadRequest e) {
+            log.warn("urlscan.io rejected domain search. url={}, domain={}, status={}", url, domain, e.getStatusCode());
+            return UrlScanLookupResult.skipped("urlscan.io 검색 요청 형식이 올바르지 않습니다.");
+        } catch (WebClientResponseException e) {
+            log.warn("urlscan.io lookup returned HTTP {}. url={}", e.getStatusCode(), url, e);
+            return UrlScanLookupResult.skipped("urlscan.io 조회가 실패했습니다. HTTP " + e.getStatusCode().value());
+        } catch (Exception e) {
+            log.warn("urlscan.io lookup failed. url={}", url, e);
+            return UrlScanLookupResult.skipped("urlscan.io 조회 중 오류가 발생했습니다.");
+        }
 
         if (body == null || !body.path("results").isArray() || body.path("results").isEmpty()) {
             return UrlScanLookupResult.noResult();
@@ -87,9 +94,38 @@ public class UrlScanServiceImpl implements UrlScanService {
         );
     }
 
-    private String buildQuery(String url) {
-        String escapedUrl = url.replace("\\", "\\\\").replace("\"", "\\\"");
-        return "page.url:\"" + escapedUrl + "\" OR task.url:\"" + escapedUrl + "\"";
+    private JsonNode requestSearch(String query) throws Exception {
+        String requestUri = UriComponentsBuilder
+                .fromUriString(searchUrl)
+                .queryParam("q", query)
+                .queryParam("size", 5)
+                .queryParam("datasource", "scans")
+                .build()
+                .encode()
+                .toUriString();
+
+        String body = webClient.get()
+                .uri(requestUri)
+                .header("api-key", apiKey)
+                .header(HttpHeaders.ACCEPT, "application/json")
+                .retrieve()
+                .bodyToMono(String.class)
+                .block(Duration.ofSeconds(10));
+
+        return body == null || body.isBlank() ? null : objectMapper.readTree(body);
+    }
+
+    private String extractHost(String url) {
+        try {
+            URI uri = new URI(url);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return null;
+            }
+            return host.startsWith("www.") ? host.substring(4) : host;
+        } catch (URISyntaxException e) {
+            return null;
+        }
     }
 
     private JsonNode selectMostRelevantResult(JsonNode results) {

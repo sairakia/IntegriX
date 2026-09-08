@@ -11,10 +11,12 @@ import java.util.List;
 
 public interface ReportFeedbackRepository extends JpaRepository<ReportFeedbackEntity, Long> {
 
-    // URL 분석 서비스가 신고 DB에 같은 URL이 있는지 빠르게 확인할 때 사용합니다.
-    boolean existsByFeedbackTypeAndContent(String feedbackType, String content);
+    // URL 분석 서비스가 관리자가 완료 처리한 같은 URL 신고가 있는지 빠르게 확인할 때 사용합니다.
+    boolean existsByFeedbackTypeAndContentAndStatus(String feedbackType, String content, String status);
 
     List<ReportFeedbackEntity> findByUserIdOrderByCreatedAtDesc(String userId);
 
     List<ReportFeedbackEntity> findAllByOrderByCreatedAtDesc();
+
+    long countByStatus(String status);
 }

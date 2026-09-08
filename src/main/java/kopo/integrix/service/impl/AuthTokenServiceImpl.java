@@ -6,11 +6,13 @@ import kopo.integrix.security.JwtTokenProvider;
 import kopo.integrix.service.AuthTokenService;
 import kopo.integrix.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthTokenServiceImpl implements AuthTokenService {
@@ -27,7 +29,7 @@ public class AuthTokenServiceImpl implements AuthTokenService {
         String accessToken = jwtTokenProvider.createAccessToken(userId);
         String refreshToken = jwtTokenProvider.createRefreshToken(userId);
 
-        redisTemplate.opsForValue().set(
+        setTokenValue(
                 refreshKey(refreshToken),
                 userId,
                 Duration.ofMillis(jwtTokenProvider.getRefreshTokenValidityMillis())
@@ -55,12 +57,12 @@ public class AuthTokenServiceImpl implements AuthTokenService {
         }
 
         String key = refreshKey(refreshToken);
-        String savedUserId = redisTemplate.opsForValue().get(key);
+        String savedUserId = getTokenValue(key);
         if (!userId.equals(savedUserId)) {
             return new CommonResponseDTO(false, "로그인 정보가 만료되었습니다. 다시 로그인해주세요.", null);
         }
 
-        redisTemplate.delete(key);
+        deleteTokenValue(key);
 
         CommonResponseDTO currentUser = userService.getCurrentUser(userId);
         if (!currentUser.success()) {
@@ -73,14 +75,14 @@ public class AuthTokenServiceImpl implements AuthTokenService {
     @Override
     public CommonResponseDTO logout(String accessTokenCookie, String refreshToken) {
         if (refreshToken != null && !refreshToken.isBlank()) {
-            redisTemplate.delete(refreshKey(refreshToken));
+            deleteTokenValue(refreshKey(refreshToken));
         }
 
         String accessToken = resolveAccessToken(accessTokenCookie);
         if (accessToken != null) {
             long remainingMillis = jwtTokenProvider.getRemainingMillis(accessToken);
             if (remainingMillis > 0) {
-                redisTemplate.opsForValue().set(
+                setTokenValue(
                         BLACKLIST_PREFIX + jwtTokenProvider.hashToken(accessToken),
                         "logout",
                         Duration.ofMillis(remainingMillis)
@@ -94,11 +96,27 @@ public class AuthTokenServiceImpl implements AuthTokenService {
     @Override
     public String getUserIdFromAccessTokenCookie(String accessTokenCookie) {
         String accessToken = resolveAccessToken(accessTokenCookie);
-        if (accessToken == null || Boolean.TRUE.equals(redisTemplate.hasKey(BLACKLIST_PREFIX + jwtTokenProvider.hashToken(accessToken)))) {
+        if (accessToken == null || hasTokenValue(BLACKLIST_PREFIX + jwtTokenProvider.hashToken(accessToken))) {
             return null;
         }
 
         return jwtTokenProvider.getUserIdFromAccessToken(accessToken);
+    }
+
+    private void setTokenValue(String key, String value, Duration ttl) {
+        redisTemplate.opsForValue().set(key, value, ttl);
+    }
+
+    private String getTokenValue(String key) {
+        return redisTemplate.opsForValue().get(key);
+    }
+
+    private void deleteTokenValue(String key) {
+        redisTemplate.delete(key);
+    }
+
+    private boolean hasTokenValue(String key) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
     }
 
     private String refreshKey(String refreshToken) {
@@ -115,4 +133,5 @@ public class AuthTokenServiceImpl implements AuthTokenService {
         }
         return second != null && !second.isBlank() ? second : null;
     }
+
 }

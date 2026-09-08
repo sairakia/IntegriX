@@ -22,4 +22,6 @@ public interface UserInfoRepository extends JpaRepository<UserInfoEntity, String
     boolean existsByUserIdAndStatus(String userId, String status);
 
     boolean existsByEmailAndStatus(String email, String status);
+
+    long countByStatus(String status);
 }

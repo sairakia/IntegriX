@@ -1,13 +1,16 @@
 package kopo.integrix.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import kopo.integrix.service.RdapService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.net.IDN;
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -19,8 +22,10 @@ import java.util.Optional;
 public class RdapServiceImpl implements RdapService {
 
     private static final String RDAP_DOMAIN_URL = "https://rdap.org/domain/";
+    private static final int MAX_REDIRECTS = 3;
 
     private final WebClient webClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public Optional<RdapDomainInfo> lookupDomain(String host) {
@@ -41,17 +46,13 @@ public class RdapServiceImpl implements RdapService {
 
     private Optional<RdapDomainInfo> lookupCandidate(String domain) {
         try {
-            JsonNode body = webClient.get()
-                    .uri(RDAP_DOMAIN_URL + domain)
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .timeout(Duration.ofSeconds(5))
-                    .block();
+            String responseBody = getRdapResponse(RDAP_DOMAIN_URL + domain, 0);
 
-            if (body == null) {
+            if (responseBody == null || responseBody.isBlank()) {
                 return Optional.empty();
             }
 
+            JsonNode body = objectMapper.readTree(responseBody);
             String registrationDate = findEventDate(body, "registration");
             String expirationDate = findEventDate(body, "expiration");
             String registrar = findRegistrar(body);
@@ -68,6 +69,32 @@ public class RdapServiceImpl implements RdapService {
             log.debug("RDAP lookup failed - domain: {}", domain, e);
             return Optional.empty();
         }
+    }
+
+    private String getRdapResponse(String url, int redirectCount) {
+        ResponseEntity<String> response = webClient.get()
+                .uri(url)
+                .retrieve()
+                .toEntity(String.class)
+                .timeout(Duration.ofSeconds(5))
+                .block();
+
+        if (response == null) {
+            return null;
+        }
+
+        if (response.getStatusCode().is3xxRedirection()
+                && response.getHeaders().getLocation() != null
+                && redirectCount < MAX_REDIRECTS) {
+            URI location = response.getHeaders().getLocation();
+            return getRdapResponse(location.toString(), redirectCount + 1);
+        }
+
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            return null;
+        }
+
+        return response.getBody();
     }
 
     private String normalizeHost(String host) {

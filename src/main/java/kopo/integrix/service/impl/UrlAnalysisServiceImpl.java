@@ -7,7 +7,9 @@ package kopo.integrix.service.impl;
 import kopo.integrix.dto.mongo.AnalysisDetailDTO;
 import kopo.integrix.dto.mongo.AnalysisResultDTO;
 import kopo.integrix.dto.url.UrlAnalysisResponseDTO;
+import kopo.integrix.entity.UrlPolicyEntity;
 import kopo.integrix.repository.ReportFeedbackRepository;
+import kopo.integrix.repository.UrlPolicyRepository;
 import kopo.integrix.repository.mongo.AnalysisDetailRepository;
 import kopo.integrix.repository.mongo.AnalysisResultRepository;
 import kopo.integrix.service.RdapService;
@@ -23,6 +25,7 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLException;
 import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Date;
@@ -37,6 +40,7 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
     private static final String LABEL_SAFE = "안전";
     private static final String LABEL_CAUTION = "주의";
     private static final String LABEL_DANGEROUS = "위험";
+    private static final String REPORT_STATUS_COMPLETED = "완료";
 
     private static final int SCORE_DNS_UNRESOLVED = 15;
     private static final int SCORE_SSL_CERTIFICATE_ERROR = 30;
@@ -49,6 +53,7 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
     private static final int SCORE_SOME_SENSITIVE_KEYWORDS = 5;
     private static final int SCORE_SHORT_URL = 10;
     private static final int SCORE_REPORTED_URL = 25;
+    private static final int SCORE_ADMIN_BLOCKED_URL = 85;
     private static final int SCORE_SAFE_BROWSING_THREAT = 50;
     private static final int SCORE_URLSCAN_MALICIOUS = 30;
     private static final int SCORE_DOMAIN_AGE_UNDER_30_DAYS = 10;
@@ -63,6 +68,7 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
     private final AnalysisResultRepository analysisResultRepository;
     private final AnalysisDetailRepository analysisDetailRepository;
     private final ReportFeedbackRepository reportFeedbackRepository;
+    private final UrlPolicyRepository urlPolicyRepository;
 
     @Override
     public UrlAnalysisResponseDTO analyzeUrl(String url, String userId) throws Exception {
@@ -84,6 +90,16 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
         List<String> blacklistStatus = new ArrayList<>();
         List<String> recommendations = new ArrayList<>();
         List<UrlAnalysisResponseDTO.ScoreFactor> scoreFactors = new ArrayList<>();
+        UrlPolicyEntity matchedUrlPolicy = findMatchingUrlPolicy(normalizedUrl, host);
+
+        if (matchedUrlPolicy != null && "BLOCK".equals(matchedUrlPolicy.getListType())) {
+            int addedScore = Math.max(SCORE_ADMIN_BLOCKED_URL - riskScore, 0);
+            blacklistStatus.add("관리자 차단 목록 검사: 차단 목록과 일치합니다. " + buildPolicyDetail(matchedUrlPolicy));
+            recommendations.add("관리자 차단 목록 반영: 운영자가 등록한 차단 항목과 일치해 위험 점수에 반영했습니다.");
+            if (addedScore > 0) {
+                riskScore = addRisk(scoreFactors, riskScore, "관리자 차단 목록", addedScore, "관리자가 차단 목록에 등록한 URL, 도메인 또는 키워드입니다.");
+            }
+        }
 
         // URL 서비스 내부에서 DNS 확인 후 실제 HTTPS/SSL 연결 검사로 흐름이 이어집니다.
         HttpsConnectionStatus httpsConnectionStatus = hostResolved
@@ -215,18 +231,19 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
             recommendations.add("단축 URL 검사: 단축 URL이 아닙니다.");
         }
 
-        // URL 서비스에서 신고 피드백 DB로 이동해 기존 신고 URL과 일치하는지 조회합니다.
-        boolean reportedUrl = reportFeedbackRepository.existsByFeedbackTypeAndContent(
+        // 관리자가 완료 처리한 신고 URL만 분석 점수에 반영합니다.
+        boolean reportedUrl = reportFeedbackRepository.existsByFeedbackTypeAndContentAndStatus(
                 "URL",
-                UrlNormalizer.normalizeForReportMatch(normalizedUrl)
+                UrlNormalizer.normalizeForReportMatch(normalizedUrl),
+                REPORT_STATUS_COMPLETED
         );
         if (reportedUrl) {
-            blacklistStatus.add("신고 데이터베이스 검사: 신고된 URL입니다.");
-            recommendations.add("신고 데이터베이스 검사: 신고된 URL입니다.");
-            riskScore = addRisk(scoreFactors, riskScore, "신고된 URL", SCORE_REPORTED_URL, "사용자 신고 데이터베이스에 등록된 URL입니다.");
+            blacklistStatus.add("신고 데이터베이스 검사: 관리자가 완료 처리한 신고 URL입니다.");
+            recommendations.add("신고 데이터베이스 검사: 관리자가 완료 처리한 신고 URL입니다.");
+            riskScore = addRisk(scoreFactors, riskScore, "완료 처리된 신고 URL", SCORE_REPORTED_URL, "관리자가 신고 검토를 완료한 URL입니다.");
         } else {
-            blacklistStatus.add("신고 데이터베이스 검사: 신고된 데이터가 없습니다.");
-            recommendations.add("신고 데이터베이스 검사: 신고된 데이터가 없습니다.");
+            blacklistStatus.add("신고 데이터베이스 검사: 완료 처리된 신고 데이터가 없습니다.");
+            recommendations.add("신고 데이터베이스 검사: 완료 처리된 신고 데이터가 없습니다.");
         }
 
         try {
@@ -472,6 +489,8 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
             }
         } catch (IllegalArgumentException e) {
             throw e;
+        } catch (UnknownHostException e) {
+            log.warn("Domain could not be resolved during public host validation - host: {}", host);
         } catch (Exception e) {
             log.warn("Domain could not be resolved during public host validation - host: {}", host, e);
         }
@@ -569,13 +588,75 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
         if (result.score() != 0) {
             details.add("score=" + result.score());
         }
-        if (result.scannedAt() != null && !result.scannedAt().isBlank()) {
-            details.add("scanTime=" + result.scannedAt());
-        }
-        if (result.resultUrl() != null && !result.resultUrl().isBlank()) {
-            details.add("result=" + result.resultUrl());
-        }
         return details.isEmpty() ? "" : " (" + String.join(", ", details) + ")";
+    }
+
+    private UrlPolicyEntity findMatchingUrlPolicy(String normalizedUrl, String host) {
+        String reportMatchUrl = UrlNormalizer.normalizeForReportMatch(normalizedUrl);
+        String lowerHost = host == null ? "" : host.toLowerCase(Locale.ROOT);
+
+        for (UrlPolicyEntity policy : urlPolicyRepository.findByActiveTrueOrderByUpdatedAtDescPolicyIdDesc()) {
+            if (!matchesPolicy(policy, reportMatchUrl, lowerHost)) {
+                continue;
+            }
+            if ("BLOCK".equals(policy.getListType())) {
+                return policy;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean matchesPolicy(UrlPolicyEntity policy, String normalizedUrl, String host) {
+        if ("PATTERN".equals(policy.getMatchType())) {
+            return matchesFlexiblePolicy(policy.getPattern(), normalizedUrl, host);
+        }
+        if ("EXACT_URL".equals(policy.getMatchType())) {
+            return normalizedUrl.equalsIgnoreCase(policy.getPattern());
+        }
+        if ("DOMAIN".equals(policy.getMatchType())) {
+            String pattern = policy.getPattern() == null ? "" : policy.getPattern().toLowerCase(Locale.ROOT);
+            return host.equals(pattern) || host.endsWith("." + pattern);
+        }
+        return false;
+    }
+
+    private boolean matchesFlexiblePolicy(String pattern, String normalizedUrl, String host) {
+        String lowerPattern = pattern == null ? "" : pattern.toLowerCase(Locale.ROOT).trim();
+        if (lowerPattern.isBlank()) {
+            return false;
+        }
+
+        String lowerUrl = normalizedUrl.toLowerCase(Locale.ROOT);
+        if (lowerUrl.equals(lowerPattern) || lowerUrl.contains(lowerPattern)) {
+            return true;
+        }
+
+        String patternHost = extractHost(lowerPattern);
+        if (patternHost != null && !patternHost.isBlank()) {
+            return host.equals(patternHost) || host.endsWith("." + patternHost);
+        }
+
+        return host.equals(lowerPattern)
+                || host.endsWith("." + lowerPattern)
+                || host.contains(lowerPattern);
+    }
+
+    private String extractHost(String value) {
+        try {
+            URI uri = URI.create(value);
+            return uri.getHost() == null ? null : uri.getHost().toLowerCase(Locale.ROOT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String buildPolicyDetail(UrlPolicyEntity policy) {
+        String reason = policy.getReason();
+        if (reason == null || reason.isBlank()) {
+            return "(" + policy.getMatchType() + ": " + policy.getPattern() + ")";
+        }
+        return "(" + policy.getMatchType() + ": " + policy.getPattern() + ", 사유: " + reason + ")";
     }
 
     private String getSeverity(String resultLabel) {
