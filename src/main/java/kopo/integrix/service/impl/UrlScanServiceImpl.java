@@ -51,9 +51,9 @@ public class UrlScanServiceImpl implements UrlScanService {
 
         JsonNode body;
         try {
-            body = requestSearch("domain:" + domain);
+            body = requestSearchWithFallbacks(url, domain);
         } catch (WebClientResponseException.BadRequest e) {
-            log.warn("urlscan.io rejected domain search. url={}, domain={}, status={}", url, domain, e.getStatusCode());
+            log.warn("urlscan.io rejected search. url={}, domain={}, status={}", url, domain, e.getStatusCode());
             return UrlScanLookupResult.skipped("urlscan.io 검색 요청 형식이 올바르지 않습니다.");
         } catch (WebClientResponseException e) {
             log.warn("urlscan.io lookup returned HTTP {}. url={}", e.getStatusCode(), url, e);
@@ -92,6 +92,26 @@ public class UrlScanServiceImpl implements UrlScanService {
                 resultUrl,
                 malicious ? "기존 분석 기록에서 악성 verdict가 확인되었습니다." : "기존 분석 기록에서 악성으로 확인되지 않았습니다."
         );
+    }
+
+    private JsonNode requestSearchWithFallbacks(String url, String domain) throws Exception {
+        String[] queries = {
+                "page.url:\"" + url + "\"",
+                "task.url:\"" + url + "\"",
+                "page.domain:" + domain,
+                "domain:" + domain,
+                domain
+        };
+
+        JsonNode lastBody = null;
+        for (String query : queries) {
+            JsonNode body = requestSearch(query);
+            if (body != null && body.path("results").isArray() && !body.path("results").isEmpty()) {
+                return body;
+            }
+            lastBody = body;
+        }
+        return lastBody;
     }
 
     private JsonNode requestSearch(String query) throws Exception {
