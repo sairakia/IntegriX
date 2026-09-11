@@ -5,11 +5,14 @@ import kopo.integrix.dto.url.UrlAnalysisResponseDTO;
 import kopo.integrix.repository.ReportFeedbackRepository;
 import kopo.integrix.repository.mongo.AnalysisDetailRepository;
 import kopo.integrix.repository.mongo.AnalysisResultRepository;
+import kopo.integrix.service.RdapService;
 import kopo.integrix.service.SafeBrowsingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -23,6 +26,7 @@ import static org.mockito.Mockito.when;
 class UrlAnalysisServiceImplTest {
 
     private SafeBrowsingService safeBrowsingService;
+    private RdapService rdapService;
     private AnalysisResultRepository analysisResultRepository;
     private AnalysisDetailRepository analysisDetailRepository;
     private ReportFeedbackRepository reportFeedbackRepository;
@@ -30,11 +34,14 @@ class UrlAnalysisServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        rdapService = mock(RdapService.class);
         safeBrowsingService = mock(SafeBrowsingService.class);
         analysisResultRepository = mock(AnalysisResultRepository.class);
         analysisDetailRepository = mock(AnalysisDetailRepository.class);
         reportFeedbackRepository = mock(ReportFeedbackRepository.class);
+        when(rdapService.lookupDomain(any())).thenReturn(Optional.empty());
         urlAnalysisService = new UrlAnalysisServiceImpl(
+                rdapService,
                 safeBrowsingService,
                 analysisResultRepository,
                 analysisDetailRepository,
@@ -66,6 +73,7 @@ class UrlAnalysisServiceImplTest {
         assertThrows(IllegalArgumentException.class, () -> urlAnalysisService.analyzeUrl(url, "user01"));
 
         verifyNoInteractions(safeBrowsingService);
+        verifyNoInteractions(rdapService);
         verifyNoInteractions(analysisResultRepository);
         verifyNoInteractions(analysisDetailRepository);
     }

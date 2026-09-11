@@ -10,6 +10,7 @@ import kopo.integrix.dto.url.UrlAnalysisResponseDTO;
 import kopo.integrix.repository.ReportFeedbackRepository;
 import kopo.integrix.repository.mongo.AnalysisDetailRepository;
 import kopo.integrix.repository.mongo.AnalysisResultRepository;
+import kopo.integrix.service.RdapService;
 import kopo.integrix.service.SafeBrowsingService;
 import kopo.integrix.service.UrlAnalysisService;
 import kopo.integrix.util.UrlNormalizer;
@@ -48,8 +49,11 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
     private static final int SCORE_SHORT_URL = 15;
     private static final int SCORE_REPORTED_URL = 25;
     private static final int SCORE_SAFE_BROWSING_THREAT = 50;
+    private static final int SCORE_DOMAIN_AGE_UNDER_30_DAYS = 15;
+    private static final int SCORE_DOMAIN_AGE_UNDER_90_DAYS = 8;
     private static final int MIN_SAFE_BROWSING_THREAT_SCORE = 70;
 
+    private final RdapService rdapService;
     private final SafeBrowsingService safeBrowsingService;
     private final AnalysisResultRepository analysisResultRepository;
     private final AnalysisDetailRepository analysisDetailRepository;
@@ -107,6 +111,38 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
             riskScore = addRisk(scoreFactors, riskScore, "긴 URL", SCORE_LONG_URL, "URL 길이가 100자를 초과합니다.");
         } else {
             recommendations.add("URL 길이 검사: URL 길이가 정상 범위입니다.");
+        }
+
+        if (isIpAddress(host)) {
+            domainAge.add("도메인 등록 정보 확인: IP 주소 URL은 RDAP 도메인 조회 대상이 아닙니다.");
+        } else {
+            rdapService.lookupDomain(host).ifPresentOrElse(domainInfo -> {
+                domainAge.add("도메인 등록 정보 확인: " + domainInfo.domain());
+
+                if (domainInfo.registrationDate() != null) {
+                    domainAge.add("도메인 등록일: " + domainInfo.registrationDate());
+                }
+                if (domainInfo.expirationDate() != null) {
+                    domainAge.add("도메인 만료일: " + domainInfo.expirationDate());
+                }
+                if (domainInfo.registrar() != null && !domainInfo.registrar().isBlank()) {
+                    domainAge.add("등록기관: " + domainInfo.registrar());
+                }
+                if (domainInfo.domainAgeDays() != null) {
+                    domainAge.add("도메인 나이: " + domainInfo.domainAgeDays() + "일");
+                }
+            }, () -> domainAge.add("도메인 등록 정보 확인: RDAP 조회 결과를 가져오지 못했습니다."));
+        }
+
+        Long domainAgeDays = extractDomainAgeDays(domainAge);
+        if (domainAgeDays != null && domainAgeDays < 30) {
+            recommendations.add("도메인 나이 확인: 생성된 지 30일 미만인 최근 등록 도메인입니다.");
+            riskScore = addRisk(scoreFactors, riskScore, "최근 등록 도메인", SCORE_DOMAIN_AGE_UNDER_30_DAYS, "RDAP 기준 도메인 생성 후 30일이 지나지 않았습니다.");
+        } else if (domainAgeDays != null && domainAgeDays < 90) {
+            recommendations.add("도메인 나이 확인: 생성된 지 90일 미만인 비교적 최근 등록 도메인입니다.");
+            riskScore = addRisk(scoreFactors, riskScore, "최근 등록 도메인", SCORE_DOMAIN_AGE_UNDER_90_DAYS, "RDAP 기준 도메인 생성 후 90일이 지나지 않았습니다.");
+        } else if (domainAgeDays != null) {
+            recommendations.add("도메인 나이 확인: 최근 생성 도메인은 아닙니다.");
         }
 
         if (normalizedUrl.contains("@")) {
@@ -302,6 +338,19 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
                     createdAt
             ));
         }
+    }
+
+    private Long extractDomainAgeDays(List<String> domainAge) {
+        for (String item : domainAge) {
+            if (item != null && item.startsWith("도메인 나이: ") && item.endsWith("일")) {
+                try {
+                    return Long.parseLong(item.substring("도메인 나이: ".length(), item.length() - 1));
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     private String normalizeUrl(String url) {
