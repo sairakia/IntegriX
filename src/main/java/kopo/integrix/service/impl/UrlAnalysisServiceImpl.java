@@ -38,19 +38,20 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
     private static final String LABEL_DANGEROUS = "위험";
 
     private static final int SCORE_DNS_UNRESOLVED = 15;
-    private static final int SCORE_SSL_CERTIFICATE_ERROR = 35;
+    private static final int SCORE_SSL_CERTIFICATE_ERROR = 30;
     private static final int SCORE_HTTPS_CONNECTION_FAILED = 10;
-    private static final int SCORE_LONG_URL = 10;
+    private static final int SCORE_LONG_URL = 8;
     private static final int SCORE_USER_INFO_MARKER = 20;
-    private static final int SCORE_EXCESSIVE_HYPHENS = 10;
+    private static final int SCORE_EXCESSIVE_HYPHENS = 8;
     private static final int SCORE_IP_ADDRESS_URL = 20;
-    private static final int SCORE_MANY_SENSITIVE_KEYWORDS = 15;
+    private static final int SCORE_MANY_SENSITIVE_KEYWORDS = 10;
     private static final int SCORE_SOME_SENSITIVE_KEYWORDS = 5;
-    private static final int SCORE_SHORT_URL = 15;
+    private static final int SCORE_SHORT_URL = 10;
     private static final int SCORE_REPORTED_URL = 25;
     private static final int SCORE_SAFE_BROWSING_THREAT = 50;
-    private static final int SCORE_DOMAIN_AGE_UNDER_30_DAYS = 15;
-    private static final int SCORE_DOMAIN_AGE_UNDER_90_DAYS = 8;
+    private static final int SCORE_DOMAIN_AGE_UNDER_30_DAYS = 10;
+    private static final int SCORE_DOMAIN_AGE_UNDER_90_DAYS = 5;
+    private static final int MIN_CAUTION_SCORE = 15;
     private static final int MIN_SAFE_BROWSING_THREAT_SCORE = 70;
 
     private final RdapService rdapService;
@@ -265,7 +266,7 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
         String trustLevel;
         if (riskScore >= 70) {
             trustLevel = "dangerous";
-        } else if (riskScore > 0) {
+        } else if (riskScore >= MIN_CAUTION_SCORE) {
             trustLevel = "caution";
         } else {
             trustLevel = "safe";
