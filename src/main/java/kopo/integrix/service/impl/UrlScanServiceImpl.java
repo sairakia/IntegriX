@@ -105,7 +105,13 @@ public class UrlScanServiceImpl implements UrlScanService {
 
         JsonNode lastBody = null;
         for (String query : queries) {
-            JsonNode body = requestSearch(query);
+            JsonNode body;
+            try {
+                body = requestSearch(query);
+            } catch (WebClientResponseException.BadRequest e) {
+                log.warn("urlscan.io rejected search query. query={}, status={}", query, e.getStatusCode());
+                continue;
+            }
             if (body != null && body.path("results").isArray() && !body.path("results").isEmpty()) {
                 return body;
             }
