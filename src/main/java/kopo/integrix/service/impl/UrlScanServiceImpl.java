@@ -53,7 +53,11 @@ public class UrlScanServiceImpl implements UrlScanService {
         try {
             body = requestSearchWithFallbacks(url, domain);
         } catch (WebClientResponseException.BadRequest e) {
-            log.warn("urlscan.io rejected search. url={}, domain={}, status={}", url, domain, e.getStatusCode());
+            log.warn("urlscan.io rejected search. url={}, domain={}, status={}, body={}",
+                    url,
+                    domain,
+                    e.getStatusCode(),
+                    e.getResponseBodyAsString());
             return UrlScanLookupResult.skipped("urlscan.io 검색 요청 형식이 올바르지 않습니다.");
         } catch (WebClientResponseException e) {
             log.warn("urlscan.io lookup returned HTTP {}. url={}", e.getStatusCode(), url, e);
@@ -109,7 +113,10 @@ public class UrlScanServiceImpl implements UrlScanService {
             try {
                 body = requestSearch(query);
             } catch (WebClientResponseException.BadRequest e) {
-                log.warn("urlscan.io rejected search query. query={}, status={}", query, e.getStatusCode());
+                log.warn("urlscan.io rejected search query. query={}, status={}, body={}",
+                        query,
+                        e.getStatusCode(),
+                        e.getResponseBodyAsString());
                 continue;
             }
             if (body != null && body.path("results").isArray() && !body.path("results").isEmpty()) {
