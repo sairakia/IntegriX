@@ -74,10 +74,7 @@ public class UrlScanServiceImpl implements UrlScanService {
         int total = body.path("total").asInt(body.path("results").size());
         JsonNode selected = selectMostRelevantResult(body.path("results"));
         JsonNode verdicts = selected.path("verdicts");
-        boolean malicious = verdicts.path("malicious").asBoolean(false)
-                || verdicts.path("urlscan").path("malicious").asBoolean(false)
-                || verdicts.path("engines").path("malicious").asBoolean(false)
-                || verdicts.path("community").path("malicious").asBoolean(false);
+        boolean malicious = isMaliciousVerdict(verdicts);
 
         int score = readScore(verdicts);
         String scannedUrl = selected.path("page").path("url").asText(
@@ -164,20 +161,27 @@ public class UrlScanServiceImpl implements UrlScanService {
     private JsonNode selectMostRelevantResult(JsonNode results) {
         JsonNode first = results.get(0);
         for (JsonNode result : results) {
-            JsonNode verdicts = result.path("verdicts");
-            if (verdicts.path("malicious").asBoolean(false)
-                    || verdicts.path("urlscan").path("malicious").asBoolean(false)
-                    || verdicts.path("engines").path("malicious").asBoolean(false)
-                    || verdicts.path("community").path("malicious").asBoolean(false)) {
+            if (isMaliciousVerdict(result.path("verdicts"))) {
                 return result;
             }
         }
         return first;
     }
 
+    private boolean isMaliciousVerdict(JsonNode verdicts) {
+        return verdicts.path("malicious").asBoolean(false)
+                || verdicts.path("overall").path("malicious").asBoolean(false)
+                || verdicts.path("urlscan").path("malicious").asBoolean(false)
+                || verdicts.path("engines").path("malicious").asBoolean(false)
+                || verdicts.path("community").path("malicious").asBoolean(false);
+    }
+
     private int readScore(JsonNode verdicts) {
         if (verdicts.has("score")) {
             return verdicts.path("score").asInt(0);
+        }
+        if (verdicts.path("overall").has("score")) {
+            return verdicts.path("overall").path("score").asInt(0);
         }
         if (verdicts.path("urlscan").has("score")) {
             return verdicts.path("urlscan").path("score").asInt(0);
