@@ -8,12 +8,15 @@ import kopo.integrix.entity.UserInfoEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
+import java.util.List;
 
 public interface UserInfoRepository extends JpaRepository<UserInfoEntity, String> {
 
     Optional<UserInfoEntity> findByUserId(String userId);
 
     Optional<UserInfoEntity> findByEmail(String email);
+
+    List<UserInfoEntity> findAllByOrderByUserIdAsc();
 
     boolean existsByUserId(String userId);
 

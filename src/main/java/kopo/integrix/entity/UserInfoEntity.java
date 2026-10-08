@@ -65,6 +65,14 @@ public class UserInfoEntity {
         this.status = "INACTIVE";
     }
 
+    public void changeStatus(String status) {
+        this.status = status;
+    }
+
+    public void changeRole(String role) {
+        this.role = role;
+    }
+
     public void reactivate(String email, String encodedPassword, String name) {
         this.email = email;
         this.password = encodedPassword;
