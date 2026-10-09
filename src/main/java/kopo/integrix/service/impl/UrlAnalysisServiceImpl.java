@@ -13,6 +13,7 @@ import kopo.integrix.repository.mongo.AnalysisResultRepository;
 import kopo.integrix.service.RdapService;
 import kopo.integrix.service.SafeBrowsingService;
 import kopo.integrix.service.UrlAnalysisService;
+import kopo.integrix.service.UrlScanService;
 import kopo.integrix.util.UrlNormalizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,13 +50,16 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
     private static final int SCORE_SHORT_URL = 10;
     private static final int SCORE_REPORTED_URL = 25;
     private static final int SCORE_SAFE_BROWSING_THREAT = 50;
+    private static final int SCORE_URLSCAN_MALICIOUS = 30;
     private static final int SCORE_DOMAIN_AGE_UNDER_30_DAYS = 10;
     private static final int SCORE_DOMAIN_AGE_UNDER_90_DAYS = 5;
     private static final int MIN_CAUTION_SCORE = 15;
     private static final int MIN_SAFE_BROWSING_THREAT_SCORE = 70;
+    private static final int MIN_URLSCAN_MALICIOUS_SCORE = 60;
 
     private final RdapService rdapService;
     private final SafeBrowsingService safeBrowsingService;
+    private final UrlScanService urlScanService;
     private final AnalysisResultRepository analysisResultRepository;
     private final AnalysisDetailRepository analysisDetailRepository;
     private final ReportFeedbackRepository reportFeedbackRepository;
@@ -257,6 +261,47 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
             log.error("Safe Browsing lookup failed", e);
             blacklistStatus.add("Google Safe Browsing 검사: 외부 보안 DB 조회에 실패했습니다.");
             recommendations.add("Google Safe Browsing 검사: 외부 보안 DB 조회에 실패했습니다.");
+        }
+
+        try {
+            // urlscan.io Search API로 기존 공개/권한 범위 내 분석 기록을 조회합니다.
+            UrlScanService.UrlScanLookupResult urlScanResult = urlScanService.lookupUrl(normalizedUrl);
+
+            if (!urlScanResult.checked()) {
+                blacklistStatus.add("urlscan.io 검사: " + urlScanResult.message());
+                recommendations.add("urlscan.io 검사: " + urlScanResult.message());
+            } else if (urlScanResult.total() <= 0) {
+                blacklistStatus.add("urlscan.io 검사: 기존 분석 기록이 없습니다.");
+                recommendations.add("urlscan.io 검사: 기존 분석 기록이 없습니다.");
+            } else if (urlScanResult.malicious()) {
+                int beforeUrlScanScore = riskScore;
+                int afterUrlScanScore = Math.max(
+                        riskScore + SCORE_URLSCAN_MALICIOUS,
+                        MIN_URLSCAN_MALICIOUS_SCORE
+                );
+                int addedScore = afterUrlScanScore - beforeUrlScanScore;
+
+                blacklistStatus.add("urlscan.io 검사: 기존 분석 기록에서 악성 URL로 확인되었습니다."
+                        + buildUrlScanDetail(urlScanResult));
+                recommendations.add("외부 분석 기록 위험 반영: urlscan.io에서 악성 verdict가 확인되어 "
+                        + addedScore + "점을 추가했습니다.");
+                if (addedScore > 0) {
+                    scoreFactors.add(new UrlAnalysisResponseDTO.ScoreFactor(
+                            "urlscan.io 악성 verdict",
+                            addedScore,
+                            "urlscan.io 기존 분석 기록에서 악성 URL로 확인되어 보조 위험 신호로 반영했습니다."
+                    ));
+                }
+                riskScore = afterUrlScanScore;
+            } else {
+                blacklistStatus.add("urlscan.io 검사: 기존 분석 기록에서 악성으로 확인되지 않았습니다."
+                        + buildUrlScanDetail(urlScanResult));
+                recommendations.add("urlscan.io 검사: 기존 분석 기록에서 악성으로 확인되지 않았습니다.");
+            }
+        } catch (Exception e) {
+            log.error("urlscan.io lookup failed", e);
+            blacklistStatus.add("urlscan.io 검사: 외부 분석 기록 조회에 실패했습니다.");
+            recommendations.add("urlscan.io 검사: 외부 분석 기록 조회에 실패했습니다.");
         }
 
         if (riskScore > 100) {
@@ -517,6 +562,20 @@ public class UrlAnalysisServiceImpl implements UrlAnalysisService {
         }
 
         return String.join(" / ", summaryParts);
+    }
+
+    private String buildUrlScanDetail(UrlScanService.UrlScanLookupResult result) {
+        List<String> details = new ArrayList<>();
+        if (result.score() != 0) {
+            details.add("score=" + result.score());
+        }
+        if (result.scannedAt() != null && !result.scannedAt().isBlank()) {
+            details.add("scanTime=" + result.scannedAt());
+        }
+        if (result.resultUrl() != null && !result.resultUrl().isBlank()) {
+            details.add("result=" + result.resultUrl());
+        }
+        return details.isEmpty() ? "" : " (" + String.join(", ", details) + ")";
     }
 
     private String getSeverity(String resultLabel) {
