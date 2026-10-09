@@ -7,6 +7,7 @@ import kopo.integrix.repository.mongo.AnalysisDetailRepository;
 import kopo.integrix.repository.mongo.AnalysisResultRepository;
 import kopo.integrix.service.RdapService;
 import kopo.integrix.service.SafeBrowsingService;
+import kopo.integrix.service.UrlScanService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,6 +27,7 @@ import static org.mockito.Mockito.when;
 class UrlAnalysisServiceImplTest {
 
     private SafeBrowsingService safeBrowsingService;
+    private UrlScanService urlScanService;
     private RdapService rdapService;
     private AnalysisResultRepository analysisResultRepository;
     private AnalysisDetailRepository analysisDetailRepository;
@@ -33,16 +35,19 @@ class UrlAnalysisServiceImplTest {
     private UrlAnalysisServiceImpl urlAnalysisService;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         rdapService = mock(RdapService.class);
         safeBrowsingService = mock(SafeBrowsingService.class);
+        urlScanService = mock(UrlScanService.class);
         analysisResultRepository = mock(AnalysisResultRepository.class);
         analysisDetailRepository = mock(AnalysisDetailRepository.class);
         reportFeedbackRepository = mock(ReportFeedbackRepository.class);
         when(rdapService.lookupDomain(any())).thenReturn(Optional.empty());
+        when(urlScanService.lookupUrl(any())).thenReturn(UrlScanService.UrlScanLookupResult.noResult());
         urlAnalysisService = new UrlAnalysisServiceImpl(
                 rdapService,
                 safeBrowsingService,
+                urlScanService,
                 analysisResultRepository,
                 analysisDetailRepository,
                 reportFeedbackRepository
@@ -73,6 +78,7 @@ class UrlAnalysisServiceImplTest {
         assertThrows(IllegalArgumentException.class, () -> urlAnalysisService.analyzeUrl(url, "user01"));
 
         verifyNoInteractions(safeBrowsingService);
+        verifyNoInteractions(urlScanService);
         verifyNoInteractions(rdapService);
         verifyNoInteractions(analysisResultRepository);
         verifyNoInteractions(analysisDetailRepository);
@@ -96,6 +102,7 @@ class UrlAnalysisServiceImplTest {
         assertFalse(result.analysis().sslCertificate().isEmpty());
 
         verify(safeBrowsingService).isUnsafeUrl("https://not-found-domain.invalid");
+        verify(urlScanService).lookupUrl("https://not-found-domain.invalid");
         verify(analysisResultRepository).save(any(AnalysisResultDTO.class));
         verify(analysisDetailRepository).saveAll(any());
     }
@@ -111,6 +118,7 @@ class UrlAnalysisServiceImplTest {
         assertEquals("https://not-found-domain.invalid", result.url());
 
         verify(safeBrowsingService).isUnsafeUrl("https://not-found-domain.invalid");
+        verify(urlScanService).lookupUrl("https://not-found-domain.invalid");
         verify(analysisResultRepository).save(any(AnalysisResultDTO.class));
         verify(analysisDetailRepository).saveAll(any());
     }
@@ -130,6 +138,7 @@ class UrlAnalysisServiceImplTest {
         assertEquals(55, result.scoreFactors().get(1).score());
 
         verify(safeBrowsingService).isUnsafeUrl("https://not-found-domain.invalid");
+        verify(urlScanService).lookupUrl("https://not-found-domain.invalid");
         verify(analysisResultRepository).save(any(AnalysisResultDTO.class));
         verify(analysisDetailRepository).saveAll(any());
     }
@@ -150,6 +159,7 @@ class UrlAnalysisServiceImplTest {
         assertEquals(20, result.scoreFactors().get(1).score());
 
         verify(safeBrowsingService).isUnsafeUrl("https://user@not-found-domain.invalid");
+        verify(urlScanService).lookupUrl("https://user@not-found-domain.invalid");
         verify(analysisResultRepository).save(any(AnalysisResultDTO.class));
         verify(analysisDetailRepository).saveAll(any());
     }
@@ -171,6 +181,37 @@ class UrlAnalysisServiceImplTest {
         assertEquals(25, result.scoreFactors().get(1).score());
 
         verify(reportFeedbackRepository).existsByFeedbackTypeAndContent("URL", "https://not-found-domain.invalid");
+        verify(urlScanService).lookupUrl("https://not-found-domain.invalid");
+        verify(analysisResultRepository).save(any(AnalysisResultDTO.class));
+        verify(analysisDetailRepository).saveAll(any());
+    }
+
+    @Test
+    void analyzeUrlAddsRiskWhenUrlScanDetectsMaliciousVerdict() throws Exception {
+        when(safeBrowsingService.isUnsafeUrl(any())).thenReturn(false);
+        when(urlScanService.lookupUrl(any())).thenReturn(new UrlScanService.UrlScanLookupResult(
+                true,
+                true,
+                80,
+                3,
+                "https://not-found-domain.invalid",
+                "2026-10-07T00:00:00.000Z",
+                "https://urlscan.io/result/test",
+                "기존 분석 기록에서 악성 verdict가 확인되었습니다."
+        ));
+        when(analysisResultRepository.save(any(AnalysisResultDTO.class)))
+                .thenAnswer(invocation -> savedResultWithId(invocation.getArgument(0)));
+
+        UrlAnalysisResponseDTO result = urlAnalysisService.analyzeUrl("https://not-found-domain.invalid", "user01");
+
+        assertEquals("caution", result.trustLevel());
+        assertEquals(60, result.riskScore());
+        assertEquals(2, result.scoreFactors().size());
+        assertEquals("urlscan.io 악성 verdict", result.scoreFactors().get(1).label());
+        assertEquals(45, result.scoreFactors().get(1).score());
+
+        verify(safeBrowsingService).isUnsafeUrl("https://not-found-domain.invalid");
+        verify(urlScanService).lookupUrl("https://not-found-domain.invalid");
         verify(analysisResultRepository).save(any(AnalysisResultDTO.class));
         verify(analysisDetailRepository).saveAll(any());
     }
