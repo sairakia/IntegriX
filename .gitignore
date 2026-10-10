@@ -7,6 +7,9 @@ uploads/
 *.log
 *.pem
 .env
+IntegriX_Portfolio*
+PORTFOLIO_IntegriX.md
+scripts/create_portfolio_*.ps1
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
